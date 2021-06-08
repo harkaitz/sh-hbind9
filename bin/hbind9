@@ -1,0 +1,211 @@
+#!/bin/sh -e
+#L:
+#L:  This software is free to use and modify, but not free to maintain.
+#L:
+#l:  Donate bitcoin: 1C1ZzDje7vHhF23mxqfcACE8QD4nqxywiV
+#l:  Copyright (c) 2018 Openvirtus.com, http://openvirtus.com
+#L:
+#L:  Permission is hereby granted, free of charge, to any person obtaining
+#L:  a copy of this software and associated documentation files (the
+#L:  "Software"), to deal in the Software without restriction, including
+#L:  without limitation the rights to use, copy, modify, merge, publish,
+#L:  distribute, sublicense, and/or sell copies of the Software, and to
+#L:  permit persons to whom the Software is furnished to do so, subject to
+#L:  the following conditions:
+#L:
+#L:  The above copyright notice and this permission notice shall be
+#L:  included in all copies or substantial portions of the Software.
+#L:
+#L:  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+#L:  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+#L:  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+#L:  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+#L:  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+#L:  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+#L:  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#L:
+#r: ## HBIND9
+#r:
+#h: Usage: $0 ...
+#h:
+#h: This script helps managing a BIND9 DNS server (UDP/TCP 53). ZONEs are
+#h: domains.
+#h:
+#h: zone-list        : List zones.
+#h: zone-file   ZONE : Get file of the zone.
+#h: zone-edit   ZONE : Edit zone file manually.
+#h: zone-delete ZONE : Delist zone from main configuration file.
+#h: zone-add    ZONE [FILENAME]    : Add zone.
+#h: zone-fadd   ZONE FIELD << CODE : Add addresses to zone.
+#h: zone-fdel   ZONE FIELD         : Delete addresses.
+#h:
+#h: help-cfg  : Print example BIND9 configurations.
+#h: help-zone :
+#h: help-test : Print help about how to test the BIND9 server.
+#h:
+#h: zone-test ZONE IP [SMTP]
+#r:
+. hutil
+hbind9() {
+    local cmd="$1"
+    shift
+    case "${cmd}" in
+        zone-list)   hbind9_zone_list                         ;;
+        zone-file)   hbind9_zone_file "$@"                    ;;
+        zone-edit)   hbind9_zone_edit "$@"                    ;;
+        zone-delete) hbind9_zone_delete "$@"                  ;;
+        zone-add)    hbind9_zone_add "$@"                     ;;
+        zone-fadd)   hbind9_zone_fadd "$@"                    ;;
+        zone-fdel)   hbind9_zone_fdel "$@"                    ;;
+        help-cfg)    hbind9_help_cfg                          ;;
+        help-zone)   hbind9_help_zone                         ;;
+        help-test)   hbind9_help_test                         ;;
+        zone-test)   hbind9_zone_test "$@"                    ;;
+        *)           hutil fatal "Invalid subcommand ${cmd}." ;;
+    esac
+}
+hbind9_show_variables() {
+    printf '%-20s : %s\n' BIND9_ZONE_CFG    "${BIND9_ZONE_CFG}"
+    printf '%-20s : %s\n' BIND9_ZONE_DIR    "${BIND9_ZONE_DIR}"
+    printf '%-20s : %s\n' PUBLIC_IP_ADDRESS "${PUBLIC_IP_ADDRESS}"
+}
+hbind9_calc_variables() {
+    if test -f /etc/pathinfo;then
+        . /etc/pathinfo
+    fi
+}
+## --------------------------------------------------------------------------
+hbind9_zone_list() {
+    hutil errif "Variable BIND9_ZONE_CFG not defined."   test ! -n "${BIND9_ZONE_CFG}"
+    hutil errif "File ${BIND9_ZONE_CFG} does not exist." test ! -f "${BIND9_ZONE_CFG}"
+    hutil flst sudo "${BIND9_ZONE_CFG}" "//"
+}
+hbind9_zone_file() { # ZONE
+    local zone="$1"
+    hutil errif "Please specify a zone name."            test ! -n "${zone}"
+    hutil errif "Variable BIND9_ZONE_CFG not defined."   test ! -n "${BIND9_ZONE_CFG}"
+    hutil errif "File ${BIND9_ZONE_CFG} does not exist." test ! -f "${BIND9_ZONE_CFG}"
+    sed -n '
+    /-- '"${zone}"' --/,/-- '"${zone}"' --/s|^ *file *"\([^"]*\)"\;|\1|p
+    ' "${BIND9_ZONE_CFG}"
+}
+hbind9_zone_edit() {
+    local zonefile="`hbind9_zone_file "$@"`"
+    test -n "${zonefile}"
+    ${EDITOR:-vi} "${zonefile}"
+}
+hbind9_zone_delete() {
+    local zone="$1"
+    hutil errif "Please specify a zone name."            test ! -n "${zone}"
+    hutil errif "Variable BIND9_ZONE_CFG not defined."   test ! -n "${BIND9_ZONE_CFG}"
+    hutil errif "File ${BIND9_ZONE_CFG} does not exist." test ! -f "${BIND9_ZONE_CFG}"
+    hutil fdel sudo "${BIND9_ZONE_CFG}" "${zone}"
+}
+hbind9_zone_add() {
+    local zone="$1" domain="$1" filename="$2"
+    hutil errif "Please specify a zone name."             test ! -n "${zone}"
+    hutil errif "Variable BIND9_ZONE_CFG not defined."    test ! -n "${BIND9_ZONE_CFG}"
+    hutil errif "File ${BIND9_ZONE_CFG} does not exist."  test ! -f "${BIND9_ZONE_CFG}"
+    hutil errif "Variable PUBLIC_IP_ADDRESS not defined." test ! -n "${PUBLIC_IP_ADDRESS}"
+    if test ! -n "${filename}";then
+        hutil errif "Variable BIND9_ZONE_DIR not defined." test ! -n "${BIND9_ZONE_DIR}"
+        local filename="${BIND9_ZONE_DIR}/${domain}.local"
+    fi
+    hutil info "${BIND9_ZONE_CFG}: Adding ${domain} zone ..."
+    hutil fadd sudo "${BIND9_ZONE_CFG}" "${domain}" "//" <<EOF
+zone "${domain}" {
+    type master;
+    file "${filename}";
+};
+EOF
+    if sudo test ! -f "${filename}";then
+        hutil info "${filename}: Creating new ..."
+        hutil create sudo "${filename}" <<EOF
+\$TTL 604800
+\$ORIGIN ${domain}.
+@   IN  SOA     ns1.${domain}. admin.${domain}. (
+     1         ; Serial
+     604800    ; Refresh
+     86400     ; Retry
+     2419200   ; Expire
+     604800    ; Negative Cache TTL
+)
+            NS      ns1
+            NS      ns2
+ns1     IN  A       ${PUBLIC_IP_ADDRESS}
+ns2     IN  A       ${PUBLIC_IP_ADDRESS}
+EOF
+    else
+        hutil info "${filename}: Updating IP address ..."
+        sudo sed -i".tmp" "
+        /^ns[0-9]  */  s|A  *.*|A      ${PUBLIC_IP_ADDRESS}|
+        " "${filename}"
+    fi
+}
+hbind9_zone_fadd() {
+    local zone="$1" field="$2"
+    hutil errif "Please specify a field name."            test ! -n "${field}"
+    hutil errif "Variable PUBLIC_IP_ADDRESS not defined." test ! -n "${PUBLIC_IP_ADDRESS}"
+    local zonefile="`hbind9_zone_file "${zone}"`"
+    test -n "${zonefile}"
+    sudo test -f "${zonefile}"
+    sed "s|%ip%|${PUBLIC_IP_ADDRESS}|g" | hutil fadd sudo "${zonefile}" "${field}" ";;"
+}
+hbind9_zone_fdel() {
+    local zone="$1" field="$2"
+    hutil errif "Please specify a field name."            test ! -n "${field}"
+    local zonefile="`hbind9_zone_file "${zone}"`"
+    test -n "${zonefile}"
+    sudo test -f "${zonefile}"
+    hutil fdel sudo "${zonefile}" "${field}" ";;"
+}
+
+## -----------------------------------------------------------------------------
+hbind9_help_cfg() {
+    echo "listen-on allow-query from 127.0.0.1/localhost to any"
+}
+hbind9_help_zone() {
+    echo "<host> IN A <ip> : Add IP address to <host>.<domain>."
+    echo "@      IN A <ip> : Add IP address to <domain>."
+}
+hbind9_help_test() {
+    echo "> host ns1.DOMAIN ${PUBLIC_IP_ADDRESS}"
+}
+hbind9_zone_test() {
+    local domain="$1" ip="$2" smtp="$3" ret=0
+    hutil errif "Please specify a domain." test ! -n "${domain}"
+    local txt="`LANG=C host "${domain}" 8.8.4.4`"
+    if test ! -n "${ip}";then
+        true
+    elif test ! -n "`echo "${txt}" | grep "has address ${ip}"`";then
+        hutil error "${domain} does not solve to ${ip}. ERROR"; local ret=1
+    else
+        hutil info "${domain} solves to ${ip}. SUCCESS"
+    fi
+    if test ! -n "${smtp}";then
+        true
+    elif test ! -n "`echo "${txt}" | grep "is handled by .* ${smtp}"`";then
+        hutil error "${domain} mail isn't ${smtp}. ERROR"; local ret=1
+    else
+        hutil info "${domain} solves to ${smtp}. SUCCESS"
+    fi
+    return $ret
+}
+
+
+
+
+
+
+
+## --------------------------------------------------------------------------
+hbind9_calc_variables
+if test @"`basename "$0"`" = @"hbind9";then
+    if test -n "$1";then
+        hbind9 "$@"
+    else
+        sed -n 's/^ *#h: \{0,1\}//p' "$0" | sed "s|\\\$0|`basename $0`|g"
+        echo ""
+        sed -n 's/^ *#l: \{0,2\}//p' "$0"
+    fi
+fi
