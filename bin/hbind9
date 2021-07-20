@@ -42,8 +42,6 @@
 #h: help-cfg  : Print example BIND9 configurations.
 #h: help-zone :
 #h: help-test : Print help about how to test the BIND9 server.
-#h:
-#h: zone-test ZONE IP [SMTP]
 #r:
 . hutil
 hbind9() {
@@ -60,7 +58,6 @@ hbind9() {
         help-cfg)    hbind9_help_cfg                          ;;
         help-zone)   hbind9_help_zone                         ;;
         help-test)   hbind9_help_test                         ;;
-        zone-test)   hbind9_zone_test "$@"                    ;;
         *)           hutil fatal "Invalid subcommand ${cmd}." ;;
     esac
 }
@@ -171,26 +168,7 @@ hbind9_help_zone() {
 hbind9_help_test() {
     echo "> host ns1.DOMAIN ${PUBLIC_IP_ADDRESS}"
 }
-hbind9_zone_test() {
-    local domain="$1" ip="$2" smtp="$3" ret=0
-    hutil errif "Please specify a domain." test ! -n "${domain}"
-    local txt="`LANG=C host "${domain}" 8.8.4.4`"
-    if test ! -n "${ip}";then
-        true
-    elif test ! -n "`echo "${txt}" | grep "has address ${ip}"`";then
-        hutil error "${domain} does not solve to ${ip}. ERROR"; local ret=1
-    else
-        hutil info "${domain} solves to ${ip}. SUCCESS"
-    fi
-    if test ! -n "${smtp}";then
-        true
-    elif test ! -n "`echo "${txt}" | grep "is handled by .* ${smtp}"`";then
-        hutil error "${domain} mail isn't ${smtp}. ERROR"; local ret=1
-    else
-        hutil info "${domain} solves to ${smtp}. SUCCESS"
-    fi
-    return $ret
-}
+
 
 
 
