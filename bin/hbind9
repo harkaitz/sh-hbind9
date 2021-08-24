@@ -43,7 +43,8 @@
 #h: help-zone :
 #h: help-test : Print help about how to test the BIND9 server.
 #r:
-. hutil
+. hlog
+. hfile
 hbind9() {
     local cmd="$1"
     shift
@@ -58,7 +59,7 @@ hbind9() {
         help-cfg)    hbind9_help_cfg                          ;;
         help-zone)   hbind9_help_zone                         ;;
         help-test)   hbind9_help_test                         ;;
-        *)           hutil fatal "Invalid subcommand ${cmd}." ;;
+        *)           hlog fatal "Invalid subcommand ${cmd}." ;;
     esac
 }
 hbind9_show_variables() {
@@ -73,15 +74,15 @@ hbind9_calc_variables() {
 }
 ## --------------------------------------------------------------------------
 hbind9_zone_list() {
-    hutil errif "Variable BIND9_ZONE_CFG not defined."   test ! -n "${BIND9_ZONE_CFG}"
-    hutil errif "File ${BIND9_ZONE_CFG} does not exist." test ! -f "${BIND9_ZONE_CFG}"
-    hutil flst sudo "${BIND9_ZONE_CFG}" "//"
+    hlog errif "Variable BIND9_ZONE_CFG not defined."   test ! -n "${BIND9_ZONE_CFG}"
+    hlog errif "File ${BIND9_ZONE_CFG} does not exist." test ! -f "${BIND9_ZONE_CFG}"
+    hfile flst sudo "${BIND9_ZONE_CFG}" "//"
 }
 hbind9_zone_file() { # ZONE
     local zone="$1"
-    hutil errif "Please specify a zone name."            test ! -n "${zone}"
-    hutil errif "Variable BIND9_ZONE_CFG not defined."   test ! -n "${BIND9_ZONE_CFG}"
-    hutil errif "File ${BIND9_ZONE_CFG} does not exist." test ! -f "${BIND9_ZONE_CFG}"
+    hlog errif "Please specify a zone name."            test ! -n "${zone}"
+    hlog errif "Variable BIND9_ZONE_CFG not defined."   test ! -n "${BIND9_ZONE_CFG}"
+    hlog errif "File ${BIND9_ZONE_CFG} does not exist." test ! -f "${BIND9_ZONE_CFG}"
     sed -n '
     /-- '"${zone}"' --/,/-- '"${zone}"' --/s|^ *file *"\([^"]*\)"\;|\1|p
     ' "${BIND9_ZONE_CFG}"
@@ -93,31 +94,31 @@ hbind9_zone_edit() {
 }
 hbind9_zone_delete() {
     local zone="$1"
-    hutil errif "Please specify a zone name."            test ! -n "${zone}"
-    hutil errif "Variable BIND9_ZONE_CFG not defined."   test ! -n "${BIND9_ZONE_CFG}"
-    hutil errif "File ${BIND9_ZONE_CFG} does not exist." test ! -f "${BIND9_ZONE_CFG}"
-    hutil fdel sudo "${BIND9_ZONE_CFG}" "${zone}"
+    hlog errif "Please specify a zone name."            test ! -n "${zone}"
+    hlog errif "Variable BIND9_ZONE_CFG not defined."   test ! -n "${BIND9_ZONE_CFG}"
+    hlog errif "File ${BIND9_ZONE_CFG} does not exist." test ! -f "${BIND9_ZONE_CFG}"
+    hfile fdel sudo "${BIND9_ZONE_CFG}" "${zone}"
 }
 hbind9_zone_add() {
     local zone="$1" domain="$1" filename="$2"
-    hutil errif "Please specify a zone name."             test ! -n "${zone}"
-    hutil errif "Variable BIND9_ZONE_CFG not defined."    test ! -n "${BIND9_ZONE_CFG}"
-    hutil errif "File ${BIND9_ZONE_CFG} does not exist."  test ! -f "${BIND9_ZONE_CFG}"
-    hutil errif "Variable PUBLIC_IP_ADDRESS not defined." test ! -n "${PUBLIC_IP_ADDRESS}"
+    hlog errif "Please specify a zone name."             test ! -n "${zone}"
+    hlog errif "Variable BIND9_ZONE_CFG not defined."    test ! -n "${BIND9_ZONE_CFG}"
+    hlog errif "File ${BIND9_ZONE_CFG} does not exist."  test ! -f "${BIND9_ZONE_CFG}"
+    hlog errif "Variable PUBLIC_IP_ADDRESS not defined." test ! -n "${PUBLIC_IP_ADDRESS}"
     if test ! -n "${filename}";then
-        hutil errif "Variable BIND9_ZONE_DIR not defined." test ! -n "${BIND9_ZONE_DIR}"
+        hlog errif "Variable BIND9_ZONE_DIR not defined." test ! -n "${BIND9_ZONE_DIR}"
         local filename="${BIND9_ZONE_DIR}/${domain}.local"
     fi
-    hutil info "${BIND9_ZONE_CFG}: Adding ${domain} zone ..."
-    hutil fadd sudo "${BIND9_ZONE_CFG}" "${domain}" "//" <<EOF
+    hlog info "${BIND9_ZONE_CFG}: Adding ${domain} zone ..."
+    hfile fadd sudo "${BIND9_ZONE_CFG}" "${domain}" "//" <<EOF
 zone "${domain}" {
     type master;
     file "${filename}";
 };
 EOF
     if sudo test ! -f "${filename}";then
-        hutil info "${filename}: Creating new ..."
-        hutil create sudo "${filename}" <<EOF
+        hlog info "${filename}: Creating new ..."
+        hfile create sudo "${filename}" <<EOF
 \$TTL 604800
 \$ORIGIN ${domain}.
 @   IN  SOA     ns1.${domain}. admin.${domain}. (
@@ -133,7 +134,7 @@ ns1     IN  A       ${PUBLIC_IP_ADDRESS}
 ns2     IN  A       ${PUBLIC_IP_ADDRESS}
 EOF
     else
-        hutil info "${filename}: Updating IP address ..."
+        hlog info "${filename}: Updating IP address ..."
         sudo sed -i".tmp" "
         /^ns[0-9]  */  s|A  *.*|A      ${PUBLIC_IP_ADDRESS}|
         " "${filename}"
@@ -141,20 +142,20 @@ EOF
 }
 hbind9_zone_fadd() {
     local zone="$1" field="$2"
-    hutil errif "Please specify a field name."            test ! -n "${field}"
-    hutil errif "Variable PUBLIC_IP_ADDRESS not defined." test ! -n "${PUBLIC_IP_ADDRESS}"
+    hlog errif "Please specify a field name."            test ! -n "${field}"
+    hlog errif "Variable PUBLIC_IP_ADDRESS not defined." test ! -n "${PUBLIC_IP_ADDRESS}"
     local zonefile="`hbind9_zone_file "${zone}"`"
     test -n "${zonefile}"
     sudo test -f "${zonefile}"
-    sed "s|%ip%|${PUBLIC_IP_ADDRESS}|g" | hutil fadd sudo "${zonefile}" "${field}" ";;"
+    sed "s|%ip%|${PUBLIC_IP_ADDRESS}|g" | hfile fadd sudo "${zonefile}" "${field}" ";;"
 }
 hbind9_zone_fdel() {
     local zone="$1" field="$2"
-    hutil errif "Please specify a field name."            test ! -n "${field}"
+    hlog errif "Please specify a field name."            test ! -n "${field}"
     local zonefile="`hbind9_zone_file "${zone}"`"
     test -n "${zonefile}"
     sudo test -f "${zonefile}"
-    hutil fdel sudo "${zonefile}" "${field}" ";;"
+    hfile fdel sudo "${zonefile}" "${field}" ";;"
 }
 
 ## -----------------------------------------------------------------------------
